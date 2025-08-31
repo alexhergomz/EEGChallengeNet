@@ -1,0 +1,22 @@
+[build-system]
+requires = ["setuptools>=61.0"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "splitaxis-ts"
+version = "0.1.0"
+description = "SplitAxis Transformer blocks for multivariate time series with dual-invariance contrastive and self-distillation training"
+requires-python = ">=3.10"
+authors = [{ name = "Your Name" }]
+readme = "README.md"
+license = { text = "MIT" }
+dependencies = [
+  "torch",
+  "numpy",
+  "scikit-learn",
+]
+
+[tool.setuptools.packages.find]
+where = ["src"]
+namespaces = false
+
