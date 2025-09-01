@@ -81,3 +81,38 @@ emb = model(x)  # (B,L,C,r)
 
 CLI training scripts (after clone): see scripts/ section above for forecasting, contrastive, and self-distillation.
 
+Datasets and streaming from S3
+
+- Local CSV/TXT matrix (T×C): use `scripts/train_forecast_csv.py` as shown above.
+- Synthetic EEG (subject/task): both `scripts/train_contrastive_eeg.py` and `scripts/train_selfdistill_eeg.py` generate data on-the-fly by default.
+- S3 streaming (BIDS-style EEG): use `--s3 s3://fcp-indi/data/Projects/HBN/BIDS_EEG/cmi_bids_NC` to stream windows without local staging.
+
+Install S3 deps:
+
+    python -m pip install fsspec s3fs
+
+Examples (S3):
+
+Contrastive (masked InfoNCE, no aug):
+
+    python scripts/train_contrastive_eeg.py \
+      --s3 s3://fcp-indi/data/Projects/HBN/BIDS_EEG/cmi_bids_NC \
+      --s3_max_files 200 --C 16 --L 256 --stride 128 --batch_size 128 \
+      --epochs 5 --r 16 --proj_dim 64 --loss infonce_masked --no_aug
+
+Self-distillation (EMA, no aug):
+
+    python scripts/train_selfdistill_eeg.py \
+      --s3 s3://fcp-indi/data/Projects/HBN/BIDS_EEG/cmi_bids_NC \
+      --s3_max_files 200 --C 16 --L 256 --stride 128 --batch_size 128 \
+      --epochs 5 --r 16 --proj_dim 64 --ema_tau 0.99 --sink_time 2 --sink_channel 2 --no_aug
+
+Model and training hyperparameters
+
+- Core width per variate: `--r` (default small for 2GB VRAM)
+- Projection dim per head: `--proj_dim`
+- Sink queries: `--sink_time`, `--sink_channel`
+- Loss for contrastive: `--loss supcon|infonce_instance|infonce_masked`
+- Augmentations (contrastive): `--no_aug`, `--num_views`, `--aug_amp`, `--aug_noise`, `--aug_shift`, `--aug_resample`
+- RevIN: inputs are normalized per-instance over time before encoding
+

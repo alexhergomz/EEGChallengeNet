@@ -3,6 +3,7 @@ import os
 import sys
 import math
 import random
+from typing import Optional
 import numpy as np
 import torch
 from torch import nn, Tensor
@@ -18,6 +19,7 @@ from src.contrastive import SupConLoss
 from src.synthetic import EEGConfig, generate_synthetic_eeg
 from src.blocks import TwoStageCLSPool
 from src.revin import RevIN
+from src.datasets import S3EEGIterableDataset
 
 
 class EEGWindows(Dataset):
@@ -44,17 +46,21 @@ class EEGWindows(Dataset):
 
 
 class DualHeadEncoder(nn.Module):
-	def __init__(self, num_channels: int, r: int, proj_dim: int = 64, sink_time: int = 2, sink_channel: int = 2):
+	def __init__(self, num_channels: int, r: int, proj_dim: int = 64, sink_time: int = 2, sink_channel: int = 2,
+	             r_v: Optional[int] = None, d_qk: Optional[int] = None, z: Optional[int] = None,
+	             num_q_heads_time: int = 1, num_q_heads_channel: int = 1):
 		super().__init__()
 		self.backbone = tiny_model(num_channels=num_channels, r=r)
 		self.cls = TwoStageCLSPool(
 			num_channels=num_channels,
 			r=r,
-			r_v=max(4, r//2),
-			d_qk=max(8, r),
-			z=max(8, r),
+			r_v=(r_v if r_v is not None else max(4, r//2)),
+			d_qk=(d_qk if d_qk is not None else max(8, r)),
+			z=(z if z is not None else max(8, r)),
 			num_sink_q_time=max(0, sink_time),
 			num_sink_q_channel=max(0, sink_channel),
+			num_q_heads_time=num_q_heads_time,
+			num_q_heads_channel=num_q_heads_channel,
 		)
 		self.proj = nn.Sequential(
 			nn.Linear(r, r), nn.GELU(), nn.Linear(r, 2 * proj_dim)
@@ -77,6 +83,8 @@ def main():
 	parser.add_argument('--C', type=int, default=16)
 	parser.add_argument('--L', type=int, default=256)
 	parser.add_argument('--stride', type=int, default=128)
+	parser.add_argument('--s3', type=str, default='', help='S3 prefix to stream EEG windows (BIDS paths). If set, overrides synthetic generator')
+	parser.add_argument('--s3_max_files', type=int, default=0, help='Max files to scan from S3 (0 = no limit)')
 	parser.add_argument('--batch_size', type=int, default=128)
 	parser.add_argument('--epochs', type=int, default=10)
 	parser.add_argument('--r', type=int, default=8)
@@ -101,11 +109,15 @@ def main():
 	device = torch.device('cpu' if (args.cpu or not torch.cuda.is_available()) else 'cuda')
 	print('Device:', device)
 
-	cfg = EEGConfig(T=args.T, C=args.C, num_subjects=args.subjects, num_tasks=args.tasks)
-	X, subj_ids, task_ids = generate_synthetic_eeg(cfg)
-	ds = EEGWindows(X, subj_ids, task_ids, L=args.L, stride=args.stride)
-	pin = device.type == 'cuda'
-	loader = DataLoader(ds, batch_size=args.batch_size, shuffle=True, pin_memory=pin)
+	if args.s3:
+		max_files = args.s3_max_files if args.s3_max_files > 0 else None
+		ds = S3EEGIterableDataset(s3_uri=args.s3, window_length=args.L, stride=args.stride, max_files=max_files, channels=args.C)
+		loader = DataLoader(ds, batch_size=args.batch_size, shuffle=True, pin_memory=(device.type=='cuda'))
+	else:
+		cfg = EEGConfig(T=args.T, C=args.C, num_subjects=args.subjects, num_tasks=args.tasks)
+		X, subj_ids, task_ids = generate_synthetic_eeg(cfg)
+		ds = EEGWindows(X, subj_ids, task_ids, L=args.L, stride=args.stride)
+		loader = DataLoader(ds, batch_size=args.batch_size, shuffle=True, pin_memory=(device.type=='cuda'))
 
 	# Optional: apply RevIN normalization to inputs before encoding
 	revin = RevIN(num_channels=args.C, affine=True).to(device)
