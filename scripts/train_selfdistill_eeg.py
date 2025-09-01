@@ -134,7 +134,8 @@ def main():
 	if args.s3:
 		max_files = args.s3_max_files if args.s3_max_files > 0 else None
 		ds = S3EEGIterableDataset(s3_uri=args.s3, window_length=args.L, stride=args.stride, max_files=max_files, channels=args.C)
-		loader = DataLoader(ds, batch_size=args.batch_size, shuffle=True, pin_memory=(device.type=='cuda'))
+		# IterableDataset: shuffle must be False
+		loader = DataLoader(ds, batch_size=args.batch_size, shuffle=False, pin_memory=(device.type=='cuda'))
 	else:
 		cfg = EEGConfig(T=args.T, C=args.C, num_subjects=args.subjects, num_tasks=args.tasks)
 		X, subj_ids, task_ids = generate_synthetic_eeg(cfg)
