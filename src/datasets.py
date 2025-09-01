@@ -1,5 +1,5 @@
 import re
-from typing import Iterable, Iterator, List, Optional, Tuple
+from typing import Iterable, Iterator, List, Optional, Tuple, Dict, Any
 
 import fsspec
 import numpy as np
@@ -47,6 +47,7 @@ class S3EEGIterableDataset(IterableDataset):
         max_files: Optional[int] = None,
         allowed_exts: Optional[List[str]] = None,
         channels: Optional[int] = None,
+        s3_options: Optional[Dict[str, Any]] = None,
     ) -> None:
         super().__init__()
         self.s3_uri = s3_uri.rstrip('/')
@@ -55,11 +56,13 @@ class S3EEGIterableDataset(IterableDataset):
         self.max_files = max_files
         self.allowed_exts = allowed_exts or ['.npy', '.npz', '.csv', '.txt']
         self.channels = channels
+        # Initialize filesystem with options (e.g., anon=True)
+        self.fs = fsspec.filesystem('s3', **(s3_options or {}))
+        self.prefix = self.s3_uri
 
     def _list_files(self) -> List[str]:
-        fs, _, paths = fsspec.get_fs_token_paths(self.s3_uri)
-        # paths is [prefix]; we need to walk
-        prefix = paths[0] if paths else self.s3_uri
+        fs = self.fs
+        prefix = self.prefix
         files = []
         for p, _, fnames in fs.walk(prefix):
             for name in fnames:
@@ -70,7 +73,7 @@ class S3EEGIterableDataset(IterableDataset):
         return files
 
     def __iter__(self) -> Iterator[Tuple[torch.Tensor, int, int]]:
-        fs, _, _ = fsspec.get_fs_token_paths(self.s3_uri)
+        fs = self.fs
         for path in self._list_files():
             try:
                 arr = _load_array(fs, path)
