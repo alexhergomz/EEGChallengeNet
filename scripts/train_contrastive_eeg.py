@@ -231,12 +231,22 @@ def main():
 					zs, zt = model(xv)
 					views_s.append(zs)
 					views_t.append(zt)
+				# Sanity: if all samples in batch share identical labels, SupCon can degenerate to 0; warn
+				if torch.unique(s_lb).numel() == 1 and torch.unique(t_lb).numel() == 1:
+					print('[warn] Batch has a single subject and single task label. Consider increasing s3_max_files or lowering batch_size to mix labels.')
 				if args.loss == 'supcon':
 					# Concatenate features and repeat labels
+					# Ensure at least 2 views for SupCon; if only 1 requested, duplicate it
+					if eff_num_views < 2:
+						views_s.append(views_s[0])
+						views_t.append(views_t[0])
+						kviews = 2
+					else:
+						kviews = eff_num_views
 					feat_s = torch.cat(views_s, dim=0)
 					feat_t = torch.cat(views_t, dim=0)
-					s_lab = s_lb.repeat_interleave(eff_num_views)
-					t_lab = t_lb.repeat_interleave(eff_num_views)
+					s_lab = s_lb.repeat_interleave(kviews)
+					t_lab = t_lb.repeat_interleave(kviews)
 					loss = crit(feat_s, s_lab) + crit(feat_t, t_lab)
 				else:
 					# InfoNCE (instance) requires at least 2 views
