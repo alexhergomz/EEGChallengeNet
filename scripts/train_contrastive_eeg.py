@@ -20,7 +20,7 @@ from src.contrastive import SupConLoss
 from src.synthetic import EEGConfig, generate_synthetic_eeg
 from src.blocks import TwoStageCLSPool
 from src.revin import RevIN
-from src.datasets import S3EEGIterableDataset
+from src.datasets import S3EEGIterableDataset, LocalEEGIterableDataset
 
 
 class EEGWindows(Dataset):
@@ -85,6 +85,7 @@ def main():
 	parser.add_argument('--L', type=int, default=256)
 	parser.add_argument('--stride', type=int, default=128)
 	parser.add_argument('--s3', type=str, default='', help='S3 prefix to stream EEG windows (BIDS paths). If set, overrides synthetic generator')
+	parser.add_argument('--local_dir', type=str, default='', help='Local directory with EEG files (edf/bdf/... or npy/csv)')
 	parser.add_argument('--s3_max_files', type=int, default=0, help='Max files to scan from S3 (0 = no limit)')
 	parser.add_argument('--s3_anon', action='store_true', help='Use anonymous S3 access (no credentials)')
 	parser.add_argument('--s3_requester_pays', action='store_true', help='Set S3 Requester Pays for access')
@@ -126,6 +127,14 @@ def main():
 			for p in files[:5]:
 				print(f"  [debug] sample file: {p}")
 		# IterableDataset: shuffle must be False
+		loader = DataLoader(ds, batch_size=args.batch_size, shuffle=False, pin_memory=(device.type=='cuda'))
+	elif args.local_dir:
+		ds = LocalEEGIterableDataset(data_dir=args.local_dir, window_length=args.L, stride=args.stride, channels=args.C)
+		if args.debug:
+			files = ds._list_files()
+			print(f"[debug] local files: {len(files)}")
+			for p in files[:5]:
+				print(f"  [debug] sample file: {p}")
 		loader = DataLoader(ds, batch_size=args.batch_size, shuffle=False, pin_memory=(device.type=='cuda'))
 	else:
 		cfg = EEGConfig(T=args.T, C=args.C, num_subjects=args.subjects, num_tasks=args.tasks)

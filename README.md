@@ -116,3 +116,17 @@ Model and training hyperparameters
 - Augmentations (contrastive): `--no_aug`, `--num_views`, `--aug_amp`, `--aug_noise`, `--aug_shift`, `--aug_resample`
 - RevIN: inputs are normalized per-instance over time before encoding
 
+EEG2025 mini (local directory) workflow
+
+Download a small release locally (no credentials required):
+
+    aws s3 cp --recursive s3://nmdatasets/NeurIPS25/R1_mini_L100_bdf ./local_directory --no-sign-request
+
+Train from the local folder (iterable streaming):
+
+    python scripts/train_contrastive_eeg.py --local_dir ./local_directory --C 16 --L 256 --stride 128 --batch_size 64 --epochs 5 --r 16 --proj_dim 64 --loss supcon --no_aug
+
+Notes:
+- Local streaming supports .bdf/.edf/.gdf/.vhdr/.fif/.set via mne (install with `python -m pip install mne`).
+- You can also pass `--s3` to stream directly from NEMAR S3 if you have connectivity and use `--s3_anon` and `--s3_requester_pays` as necessary.
+

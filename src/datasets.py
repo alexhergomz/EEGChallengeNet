@@ -132,3 +132,62 @@ class S3EEGIterableDataset(IterableDataset):
                 continue
 
 
+class LocalEEGIterableDataset(IterableDataset):
+    """
+    Streams EEG arrays from a local directory (recursive). Supports EEG formats and numeric matrices.
+    Produces sliding windows of (L, C) with subject/task ids extracted from path names.
+    """
+
+    def __init__(
+        self,
+        data_dir: str,
+        window_length: int,
+        stride: int,
+        max_files: Optional[int] = None,
+        allowed_exts: Optional[List[str]] = None,
+        channels: Optional[int] = None,
+    ) -> None:
+        super().__init__()
+        self.data_dir = data_dir
+        self.window_length = window_length
+        self.stride = stride
+        self.max_files = max_files
+        self.allowed_exts = allowed_exts or ['.npy', '.npz', '.csv', '.txt', '.edf', '.bdf', '.gdf', '.vhdr', '.fif', '.set']
+        self.channels = channels
+        self.fs = fsspec.filesystem('file')
+
+    def _list_files(self) -> List[str]:
+        fs = self.fs
+        prefix = self.data_dir
+        files = []
+        for p, _, fnames in fs.walk(prefix):
+            for name in fnames:
+                if any(name.lower().endswith(ext) for ext in self.allowed_exts):
+                    files.append(f"{p}/{name}")
+                    if self.max_files and len(files) >= self.max_files:
+                        return files
+        return files
+
+    def __iter__(self) -> Iterator[Tuple[torch.Tensor, int, int]]:
+        fs = self.fs
+        for path in self._list_files():
+            try:
+                arr = _load_array(fs, path)
+                if arr is None:
+                    continue
+                if arr.ndim == 1:
+                    arr = arr[:, None]
+                X = arr.astype(np.float32)
+                if self.channels is not None:
+                    X = X[:, : self.channels]
+                T, C = X.shape
+                sub_id, task_id = _extract_labels_from_path(path)
+                for t0 in range(0, max(1, T - self.window_length + 1), self.stride):
+                    window = X[t0 : t0 + self.window_length]
+                    if window.shape[0] < self.window_length:
+                        continue
+                    yield torch.from_numpy(window), sub_id, task_id
+            except Exception:
+                continue
+
+
