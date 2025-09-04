@@ -1,5 +1,6 @@
 import re
 from typing import Iterable, Iterator, List, Optional, Tuple, Dict, Any
+import tempfile
 
 import fsspec
 import numpy as np
@@ -24,13 +25,45 @@ def _extract_labels_from_path(path: str) -> Tuple[int, int]:
 
 
 def _load_array(fs: fsspec.AbstractFileSystem, path: str) -> Optional[np.ndarray]:
-    if path.endswith('.npy') or path.endswith('.npz'):
+    p = path.lower()
+    if p.endswith('.npy') or p.endswith('.npz'):
         with fs.open(path, 'rb') as f:
             return np.load(f)
-    if path.endswith('.csv') or path.endswith('.txt'):
+    if p.endswith('.csv') or p.endswith('.txt'):
         with fs.open(path, 'rb') as f:
             return np.loadtxt(f, delimiter=',')
-    return None
+    # Try EEG formats via mne (download to temp file)
+    try:
+        import mne  # type: ignore
+    except Exception:
+        return None
+    try:
+        suffix = None
+        for ext in ('.edf', '.bdf', '.gdf', '.vhdr', '.fif', '.set'):
+            if p.endswith(ext):
+                suffix = ext
+                break
+        if suffix is None:
+            return None
+        with tempfile.NamedTemporaryFile(suffix=suffix, delete=True) as tmp:
+            with fs.open(path, 'rb') as fsrc:
+                tmp.write(fsrc.read())
+                tmp.flush()
+            if suffix == '.edf' or suffix == '.bdf' or suffix == '.gdf':
+                raw = mne.io.read_raw_edf(tmp.name, preload=True, verbose="ERROR")
+            elif suffix == '.vhdr':
+                raw = mne.io.read_raw_brainvision(tmp.name, preload=True, verbose="ERROR")
+            elif suffix == '.fif':
+                raw = mne.io.read_raw_fif(tmp.name, preload=True, verbose="ERROR")
+            elif suffix == '.set':
+                raw = mne.io.read_raw_eeglab(tmp.name, preload=True, verbose="ERROR")
+            else:
+                return None
+            data = raw.get_data()  # (n_channels, n_times)
+            arr = data.T.astype(np.float32)
+            return arr
+    except Exception:
+        return None
 
 
 class S3EEGIterableDataset(IterableDataset):
@@ -54,7 +87,7 @@ class S3EEGIterableDataset(IterableDataset):
         self.window_length = window_length
         self.stride = stride
         self.max_files = max_files
-        self.allowed_exts = allowed_exts or ['.npy', '.npz', '.csv', '.txt']
+        self.allowed_exts = allowed_exts or ['.npy', '.npz', '.csv', '.txt', '.edf', '.bdf', '.gdf', '.vhdr', '.fif', '.set']
         self.channels = channels
         # Initialize filesystem with options (e.g., anon=True)
         self.fs = fsspec.filesystem('s3', **(s3_options or {}))
