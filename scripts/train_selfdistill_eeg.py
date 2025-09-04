@@ -7,6 +7,7 @@ import numpy as np
 import torch
 from torch import nn, Tensor
 from torch.utils.data import DataLoader, Dataset
+from tqdm import tqdm
 
 # Ensure project root import
 ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
@@ -128,6 +129,7 @@ def main():
 	parser.add_argument('--sink_channel', type=int, default=2)
 	parser.add_argument('--no_aug', action='store_true', help='Disable data augmentations (use identical views)')
 	parser.add_argument('--cpu', action='store_true')
+	parser.add_argument('--no_progress', action='store_true', help='Disable tqdm progress bar')
 	args = parser.parse_args()
 
 	device = torch.device('cpu' if (args.cpu or not torch.cuda.is_available()) else 'cuda')
@@ -156,7 +158,8 @@ def main():
 		model.train()
 		total = 0.0
 		count = 0
-		for xb, s_lb, t_lb in loader:
+		iterable = loader if args.no_progress else tqdm(loader, desc=f"Epoch {epoch:02d}/{args.epochs}")
+		for xb, s_lb, t_lb in iterable:
 			xb = xb.to(device, non_blocking=True)
 			xb = revin(xb)
 			# Build two views: if --no_aug, use identical inputs; else small Gaussian jitter
