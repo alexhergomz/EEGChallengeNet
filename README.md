@@ -130,3 +130,9 @@ Notes:
 - Local streaming supports .bdf/.edf/.gdf/.vhdr/.fif/.set via mne (install with `python -m pip install mne`).
 - You can also pass `--s3` to stream directly from NEMAR S3 if you have connectivity and use `--s3_anon` and `--s3_requester_pays` as necessary.
 
+Example script
+
+Run the included example to download the EEG2025 mini and start contrastive training:
+
+    bash examples/contrastive_eeg2025_mini.sh
+
