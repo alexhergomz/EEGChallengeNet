@@ -101,6 +101,7 @@ def main():
 	parser.add_argument('--aug_resample', type=float, default=0.1, help='Max global resample factor delta')
 	# loss selection
 	parser.add_argument('--loss', type=str, default='supcon', choices=['supcon', 'infonce_instance', 'infonce_masked'], help='Loss type for contrastive training')
+	parser.add_argument('--debug', action='store_true', help='Print debug info about S3 listing, batch labels, and loss')
 	parser.add_argument('--lr', type=float, default=3e-3)
 	parser.add_argument('--wd', type=float, default=1e-4)
 	parser.add_argument('--temp', type=float, default=0.1)
@@ -114,6 +115,11 @@ def main():
 		max_files = args.s3_max_files if args.s3_max_files > 0 else None
 		opts = {'anon': True} if args.s3_anon else {}
 		ds = S3EEGIterableDataset(s3_uri=args.s3, window_length=args.L, stride=args.stride, max_files=max_files, channels=args.C, s3_options=opts)
+		if args.debug:
+			files = ds._list_files()
+			print(f"[debug] S3 listed files: {len(files)}")
+			for p in files[:5]:
+				print(f"  [debug] sample file: {p}")
 		# IterableDataset: shuffle must be False
 		loader = DataLoader(ds, batch_size=args.batch_size, shuffle=False, pin_memory=(device.type=='cuda'))
 	else:
@@ -220,6 +226,8 @@ def main():
 			xb = revin(xb)  # instance normalize per sample over time
 			s_lb = s_lb.to(device)
 			t_lb = t_lb.to(device)
+			if args.debug:
+				print(f"[debug] batch shapes: x={tuple(xb.shape)} subj_unique={int(torch.unique(s_lb).numel())} task_unique={int(torch.unique(t_lb).numel())}")
 			opt.zero_grad(set_to_none=True)
 			ctx = torch.amp.autocast('cuda') if scaler is not None else nullcontext()
 			with ctx:
@@ -232,7 +240,7 @@ def main():
 					views_s.append(zs)
 					views_t.append(zt)
 				# Sanity: if all samples in batch share identical labels, SupCon can degenerate to 0; warn
-				if torch.unique(s_lb).numel() == 1 and torch.unique(t_lb).numel() == 1:
+				if args.debug and torch.unique(s_lb).numel() == 1 and torch.unique(t_lb).numel() == 1:
 					print('[warn] Batch has a single subject and single task label. Consider increasing s3_max_files or lowering batch_size to mix labels.')
 				if args.loss == 'supcon':
 					# Concatenate features and repeat labels
@@ -270,7 +278,10 @@ def main():
 				opt.step()
 			total += loss.item() * xb.size(0)
 			count += xb.size(0)
-		print(f"Epoch {epoch:02d}/{args.epochs} | loss {total/max(1,count):.4f}")
+		if count == 0:
+			print(f"Epoch {epoch:02d}/{args.epochs} | no samples (check S3 listing/extensions or increase --s3_max_files)")
+		else:
+			print(f"Epoch {epoch:02d}/{args.epochs} | loss {total/max(1,count):.4f}")
 
 if __name__ == '__main__':
 	from contextlib import nullcontext
