@@ -81,6 +81,7 @@ class S3EEGIterableDataset(IterableDataset):
         allowed_exts: Optional[List[str]] = None,
         channels: Optional[int] = None,
         s3_options: Optional[Dict[str, Any]] = None,
+        debug: bool = False,
     ) -> None:
         super().__init__()
         self.s3_uri = s3_uri.rstrip('/')
@@ -92,6 +93,7 @@ class S3EEGIterableDataset(IterableDataset):
         # Initialize filesystem with options (e.g., anon=True)
         self.fs = fsspec.filesystem('s3', **(s3_options or {}))
         self.prefix = self.s3_uri
+        self.debug = debug
 
     def _list_files(self) -> List[str]:
         fs = self.fs
@@ -109,8 +111,17 @@ class S3EEGIterableDataset(IterableDataset):
         fs = self.fs
         for path in self._list_files():
             try:
+                if self.debug:
+                    try:
+                        info = fs.info(path)
+                        size = info.get('size', None)
+                        print(f"[dataset] reading {path} size={size}")
+                    except Exception as e:
+                        print(f"[dataset] info error for {path}: {e}")
                 arr = _load_array(fs, path)
                 if arr is None:
+                    if self.debug:
+                        print(f"[dataset] unsupported or failed to parse: {path}")
                     continue
                 if arr.ndim == 1:
                     arr = arr[:, None]
@@ -127,8 +138,9 @@ class S3EEGIterableDataset(IterableDataset):
                     if window.shape[0] < self.window_length:
                         continue
                     yield torch.from_numpy(window), sub_id, task_id
-            except Exception:
-                # Skip unreadable files
+            except Exception as e:
+                if self.debug:
+                    print(f"[dataset] exception on {path}: {e}")
                 continue
 
 
@@ -155,6 +167,7 @@ class LocalEEGIterableDataset(IterableDataset):
         self.allowed_exts = allowed_exts or ['.npy', '.npz', '.csv', '.txt', '.edf', '.bdf', '.gdf', '.vhdr', '.fif', '.set']
         self.channels = channels
         self.fs = fsspec.filesystem('file')
+        self.debug = False
 
     def _list_files(self) -> List[str]:
         fs = self.fs
@@ -187,7 +200,9 @@ class LocalEEGIterableDataset(IterableDataset):
                     if window.shape[0] < self.window_length:
                         continue
                     yield torch.from_numpy(window), sub_id, task_id
-            except Exception:
+            except Exception as e:
+                if self.debug:
+                    print(f"[dataset-local] exception on {path}: {e}")
                 continue
 
 

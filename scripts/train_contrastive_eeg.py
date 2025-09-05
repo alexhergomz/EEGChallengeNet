@@ -120,7 +120,7 @@ def main():
 		opts = {'anon': True} if args.s3_anon else {}
 		if args.s3_requester_pays:
 			opts['requester_pays'] = True
-		ds = S3EEGIterableDataset(s3_uri=args.s3, window_length=args.L, stride=args.stride, max_files=max_files, channels=args.C, s3_options=opts)
+		ds = S3EEGIterableDataset(s3_uri=args.s3, window_length=args.L, stride=args.stride, max_files=max_files, channels=args.C, s3_options=opts, debug=args.debug)
 		if args.debug:
 			files = ds._list_files()
 			print(f"[debug] S3 listed files: {len(files)}")
